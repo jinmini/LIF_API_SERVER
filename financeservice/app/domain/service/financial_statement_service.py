@@ -3,7 +3,7 @@ import logging
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.model.schemas import RawFinancialStatement, CompanyInfo
+from app.domain.model.schema.schema import RawFinancialStatement, CompanyInfo
 from app.domain.repository.fin_repository import (
     delete_financial_statements,
     save_financial_statements
@@ -52,13 +52,14 @@ class FinancialStatementService:
             # 2. 기존 데이터 확인
             if year is not None:
                 check_query = text("""
-                    SELECT bsns_year, sj_div, sj_nm, account_nm, 
-                           thstrm_amount, frmtrm_amount, bfefrmtrm_amount
-                    FROM fin_data 
-                    WHERE corp_name = :company_name
-                    AND bsns_year = :year
-                    AND sj_div != 'RATIO'
-                    ORDER BY bsns_year DESC, sj_div, ord
+                    SELECT f.bsns_year, f.sj_div, s.sj_nm, f.account_nm, 
+                           f.thstrm_amount, f.frmtrm_amount, f.bfefrmtrm_amount
+                    FROM financials f
+                    JOIN companies c ON f.corp_code = c.corp_code
+                    JOIN statement s ON f.sj_div = s.sj_div
+                    WHERE c.corp_name = :company_name
+                    AND f.bsns_year = :year
+                    ORDER BY f.bsns_year DESC, f.sj_div, f.ord
                 """)
                 result = await self.db_session.execute(check_query, {
                     "company_name": company_name,
@@ -66,12 +67,13 @@ class FinancialStatementService:
                 })
             else:
                 check_query = text("""
-                    SELECT bsns_year, sj_div, sj_nm, account_nm, 
-                           thstrm_amount, frmtrm_amount, bfefrmtrm_amount
-                    FROM fin_data 
-                    WHERE corp_name = :company_name
-                    AND sj_div != 'RATIO'
-                    ORDER BY bsns_year DESC, sj_div, ord
+                    SELECT f.bsns_year, f.sj_div, s.sj_nm, f.account_nm, 
+                           f.thstrm_amount, f.frmtrm_amount, f.bfefrmtrm_amount
+                    FROM financials f
+                    JOIN companies c ON f.corp_code = c.corp_code
+                    JOIN statement s ON f.sj_div = s.sj_div
+                    WHERE c.corp_name = :company_name
+                    ORDER BY f.bsns_year DESC, f.sj_div, f.ord
                 """)
                 result = await self.db_session.execute(check_query, {
                     "company_name": company_name
@@ -110,15 +112,14 @@ class FinancialStatementService:
             statement_data = [self.data_processor.prepare_statement_data(stmt, company_info) for stmt in statements]
             await save_financial_statements(self.db_session, statement_data)
             
-            # 6. 재무비율 계산 및 저장 (한 번만 실행)
+            # 6. 재무비율 계산 및 저장
             bsns_year = statements[0].bsns_year if statements else None
             if bsns_year:
                 # 기존 재무비율 데이터 확인
                 ratio_check_query = text("""
-                    SELECT 1 FROM fin_data 
+                    SELECT 1 FROM metrics 
                     WHERE corp_code = :corp_code 
                     AND bsns_year = :bsns_year
-                    AND sj_div = 'RATIO'
                     LIMIT 1
                 """)
                 ratio_result = await self.db_session.execute(ratio_check_query, {
@@ -137,13 +138,14 @@ class FinancialStatementService:
             # 7. 저장된 데이터 조회하여 반환
             if year is not None:
                 data_query = text("""
-                    SELECT bsns_year, sj_div, sj_nm, account_nm, 
-                           thstrm_amount, frmtrm_amount, bfefrmtrm_amount
-                    FROM fin_data 
-                    WHERE corp_name = :company_name
-                    AND bsns_year = :year
-                    AND sj_div != 'RATIO'
-                    ORDER BY bsns_year DESC, sj_div, ord
+                    SELECT f.bsns_year, f.sj_div, s.sj_nm, f.account_nm, 
+                           f.thstrm_amount, f.frmtrm_amount, f.bfefrmtrm_amount
+                    FROM financials f
+                    JOIN companies c ON f.corp_code = c.corp_code
+                    JOIN statement s ON f.sj_div = s.sj_div
+                    WHERE c.corp_name = :company_name
+                    AND f.bsns_year = :year
+                    ORDER BY f.bsns_year DESC, f.sj_div, f.ord
                 """)
                 data_result = await self.db_session.execute(data_query, {
                     "company_name": company_name,
@@ -151,12 +153,13 @@ class FinancialStatementService:
                 })
             else:
                 data_query = text("""
-                    SELECT bsns_year, sj_div, sj_nm, account_nm, 
-                           thstrm_amount, frmtrm_amount, bfefrmtrm_amount
-                    FROM fin_data 
-                    WHERE corp_name = :company_name
-                    AND sj_div != 'RATIO'
-                    ORDER BY bsns_year DESC, sj_div, ord
+                    SELECT f.bsns_year, f.sj_div, s.sj_nm, f.account_nm, 
+                           f.thstrm_amount, f.frmtrm_amount, f.bfefrmtrm_amount
+                    FROM financials f
+                    JOIN companies c ON f.corp_code = c.corp_code
+                    JOIN statement s ON f.sj_div = s.sj_div
+                    WHERE c.corp_name = :company_name
+                    ORDER BY f.bsns_year DESC, f.sj_div, f.ord
                 """)
                 data_result = await self.db_session.execute(data_query, {
                     "company_name": company_name

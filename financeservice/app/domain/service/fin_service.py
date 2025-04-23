@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 from app.domain.service.company_info_service import CompanyInfoService
 from app.domain.service.financial_statement_service import FinancialStatementService
-from app.domain.model.schemas import CompanyInfo, RawFinancialStatement
+from app.domain.model.schema.schema import CompanyInfo, RawFinancialStatement
 
 # 로깅 설정
 logger = logging.getLogger(__name__)

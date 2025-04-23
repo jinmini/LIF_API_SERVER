@@ -7,7 +7,7 @@ import logging
 import os
 from dotenv import load_dotenv
 
-from app.api.fin.fin_router import router as fin_router
+from app.api.fin_router import router as fin_router
 from app.foundation.infra.database.database import init_db
 
 # 환경 변수 로드
@@ -37,7 +37,7 @@ app.add_middleware(
 )
 
 # 라우터 등록
-app.include_router(fin_router, tags=["financial"])
+app.include_router(fin_router, prefix="/e/fin", tags=["fin"])
 
 current_time: Callable[[], str] = lambda: datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
 

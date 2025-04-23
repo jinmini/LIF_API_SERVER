@@ -6,7 +6,7 @@ import logging
 from typing import Optional
 from decimal import Decimal
 
-from app.domain.model.schemas import (
+from app.domain.model.schema.schema import (
     FinancialMetricsResponse,
     FinancialMetrics,
     GrowthData,

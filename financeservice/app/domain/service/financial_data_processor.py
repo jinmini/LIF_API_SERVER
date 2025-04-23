@@ -1,6 +1,6 @@
 from typing import List, Dict, Any, Optional
 import logging
-from app.domain.model.schemas import RawFinancialStatement, CompanyInfo
+from app.domain.model.schema.schema import RawFinancialStatement, CompanyInfo
 
 logger = logging.getLogger(__name__)
 

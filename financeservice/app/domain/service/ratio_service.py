@@ -59,141 +59,122 @@ class RatioService:
         
         return financial_data
 
-    def _calculate_ratios(self, financial_data: Dict[str, Dict[str, Dict[str, float]]]) -> Dict[str, float]:
-        """재무비율을 계산합니다."""
-        ratios = {}
-        bs_data = financial_data["BS"]
-        is_data = financial_data["IS"]
-        
-        # 안정성 지표
-        if "자산총계" in bs_data and "부채총계" in bs_data and "자본총계" in bs_data:
-            total_assets = bs_data["자산총계"]["current"]
-            total_liabilities = bs_data["부채총계"]["current"]
-            total_equity = bs_data["자본총계"]["current"]
-            
-            if total_equity > 0:
-                ratios["debt_ratio"] = (total_liabilities / total_equity) * 100
-            
-            if total_assets > 0:
-                ratios["roa"] = (is_data["당기순이익"]["current"] / total_assets) * 100
-        
-        if "유동자산" in bs_data and "유동부채" in bs_data:
-            current_assets = bs_data["유동자산"]["current"]
-            current_liabilities = bs_data["유동부채"]["current"]
-            if current_liabilities > 0:
-                ratios["current_ratio"] = (current_assets / current_liabilities) * 100
-        
-        # 수익성 지표
-        if "매출액" in is_data and "영업이익" in is_data and "당기순이익" in is_data:
-            revenue = is_data["매출액"]["current"]
-            operating_profit = is_data["영업이익"]["current"]
-            net_income = is_data["당기순이익"]["current"]
-            
-            if revenue > 0:
-                ratios["operating_profit_ratio"] = (operating_profit / revenue) * 100
-                ratios["net_profit_ratio"] = (net_income / revenue) * 100
-            
-            if "자본총계" in bs_data and bs_data["자본총계"]["current"] > 0:
-                ratios["roe"] = (net_income / bs_data["자본총계"]["current"]) * 100
-        
-        # 성장률 지표
-        if "매출액" in is_data:
-            ratios["sales_growth"] = self._calculate_growth_rate(
-                is_data["매출액"]["current"],
-                is_data["매출액"]["previous"]
-            )
-        
-        if "영업이익" in is_data:
-            ratios["operating_profit_growth"] = self._calculate_growth_rate(
-                is_data["영업이익"]["current"],
-                is_data["영업이익"]["previous"]
-            )
-        
-        return ratios
-
-    async def calculate_financial_ratios(self, corp_code: str, bsns_year: str) -> Dict[str, Any]:
+    def _calculate_ratios(self, data: Dict[str, Dict[str, float]]) -> Dict[str, Optional[float]]:
         """재무비율을 계산합니다."""
         try:
-            statements = await self._get_financial_statements(corp_code, bsns_year)
-            if not statements:
-                logger.warning(f"재무제표 데이터가 없습니다: {corp_code}, {bsns_year}")
-                return {}
+            # 필요한 계정과목 금액 추출
+            total_assets = data.get('자산총계', {}).get('thstrm', 0)
+            total_liabilities = data.get('부채총계', {}).get('thstrm', 0)
+            current_assets = data.get('유동자산', {}).get('thstrm', 0)
+            current_liabilities = data.get('유동부채', {}).get('thstrm', 0)
+            total_equity = data.get('자본총계', {}).get('thstrm', 0)
+            revenue = data.get('매출액', {}).get('thstrm', 0)
+            operating_profit = data.get('영업이익', {}).get('thstrm', 0)
+            net_income = data.get('당기순이익', {}).get('thstrm', 0)
             
-            financial_data = self._extract_financial_data(statements)
-            ratios = self._calculate_ratios(financial_data)
+            # 전기 데이터
+            prev_revenue = data.get('매출액', {}).get('frmtrm', 0)
+            prev_operating_profit = data.get('영업이익', {}).get('frmtrm', 0)
+            prev_net_income = data.get('당기순이익', {}).get('frmtrm', 0)
             
-            return {
-                "corp_code": corp_code,
-                "bsns_year": bsns_year,
-                **ratios
+            # 재무비율 계산
+            ratios = {
+                # 안정성 비율
+                "debt_ratio": self._safe_divide(total_liabilities, total_equity) * 100 if total_equity != 0 else None,
+                "current_ratio": self._safe_divide(current_assets, current_liabilities) * 100 if current_liabilities != 0 else None,
+                "debt_dependency": self._safe_divide(total_liabilities, total_assets) * 100 if total_assets != 0 else None,
+                
+                # 수익성 비율
+                "operating_profit_ratio": self._safe_divide(operating_profit, revenue) * 100 if revenue != 0 else None,
+                "net_profit_ratio": self._safe_divide(net_income, revenue) * 100 if revenue != 0 else None,
+                "roe": self._safe_divide(net_income, total_equity) * 100 if total_equity != 0 else None,
+                "roa": self._safe_divide(net_income, total_assets) * 100 if total_assets != 0 else None,
+                
+                # 성장성 비율
+                "sales_growth": self._calculate_growth_rate(revenue, prev_revenue),
+                "operating_profit_growth": self._calculate_growth_rate(operating_profit, prev_operating_profit),
+                "eps_growth": self._calculate_growth_rate(net_income, prev_net_income)
             }
+            
+            return ratios
             
         except Exception as e:
             logger.error(f"재무비율 계산 중 오류 발생: {str(e)}")
             raise
 
+    def _safe_divide(self, numerator: float, denominator: float) -> Optional[float]:
+        """안전한 나눗셈을 수행합니다."""
+        try:
+            if denominator == 0:
+                return None
+            return numerator / denominator
+        except:
+            return None
+
     async def calculate_and_save_ratios(self, corp_code: str, corp_name: str, bsns_year: str) -> Dict[str, Any]:
         """재무비율을 계산하고 저장합니다."""
         try:
-            ratios = await self.calculate_financial_ratios(corp_code, bsns_year)
-            if not ratios:
-                return {}
-            
-            await self._save_ratios(corp_code, corp_name, bsns_year, ratios)
-            return ratios
-            
-        except Exception as e:
-            logger.error(f"재무비율 계산 및 저장 실패: {str(e)}")
-            raise
-
-    async def _save_ratios(self, corp_code: str, corp_name: str, bsns_year: str, ratios: Dict[str, float]) -> None:
-        """계산된 재무비율을 저장합니다."""
-        try:
-            # 기존 재무비율 데이터 삭제
-            delete_query = text("""
-                DELETE FROM fin_data 
-                WHERE corp_code = :corp_code 
-                AND bsns_year = :bsns_year
-                AND sj_div = 'RATIO'
+            # 재무제표 데이터 조회
+            query = text("""
+                SELECT f.account_nm, f.thstrm_amount, f.frmtrm_amount
+                FROM financials f
+                WHERE f.corp_code = :corp_code
+                AND f.bsns_year = :bsns_year
+                AND f.sj_div IN ('BS', 'IS')  -- 재무상태표와 손익계산서만 조회
             """)
-            await self.db_session.execute(delete_query, {
+            result = await self.db_session.execute(query, {
                 "corp_code": corp_code,
                 "bsns_year": bsns_year
             })
             
-            # 새로운 재무비율 데이터 저장
+            # 계정과목별 금액을 딕셔너리로 변환
+            financial_data = {}
+            for row in result:
+                financial_data[row[0]] = {
+                    'thstrm': float(row[1]) if row[1] is not None else 0,
+                    'frmtrm': float(row[2]) if row[2] is not None else 0
+                }
+
+            # 재무비율 계산
+            ratios = self._calculate_ratios(financial_data)
+            
+            # 재무비율 저장
             insert_query = text("""
-                INSERT INTO fin_data (
-                    corp_code, corp_name, bsns_year, sj_div, sj_nm,
+                INSERT INTO metrics (
+                    corp_code, bsns_year,
                     debt_ratio, current_ratio,
-                    operating_profit_ratio, net_profit_ratio, roe, roa,
-                    sales_growth, operating_profit_growth
+                    operating_profit_ratio, net_profit_ratio,
+                    roe, roa, debt_dependency,
+                    sales_growth, operating_profit_growth, eps_growth
                 ) VALUES (
-                    :corp_code, :corp_name, :bsns_year, 'RATIO', '재무비율',
+                    :corp_code, :bsns_year,
                     :debt_ratio, :current_ratio,
-                    :operating_profit_ratio, :net_profit_ratio, :roe, :roa,
-                    :sales_growth, :operating_profit_growth
+                    :operating_profit_ratio, :net_profit_ratio,
+                    :roe, :roa, :debt_dependency,
+                    :sales_growth, :operating_profit_growth, :eps_growth
                 )
             """)
             
-            # 기본값 설정
-            ratio_data = {
+            await self.db_session.execute(insert_query, {
                 "corp_code": corp_code,
-                "corp_name": corp_name,
                 "bsns_year": bsns_year,
-                **{k: ratios.get(k, 0) for k in [
-                    "debt_ratio", "current_ratio",
-                    "operating_profit_ratio", "net_profit_ratio", "roe", "roa",
-                    "sales_growth", "operating_profit_growth"
-                ]}
-            }
+                "debt_ratio": ratios.get("debt_ratio"),
+                "current_ratio": ratios.get("current_ratio"),
+                "operating_profit_ratio": ratios.get("operating_profit_ratio"),
+                "net_profit_ratio": ratios.get("net_profit_ratio"),
+                "roe": ratios.get("roe"),
+                "roa": ratios.get("roa"),
+                "debt_dependency": ratios.get("debt_dependency"),
+                "sales_growth": ratios.get("sales_growth"),
+                "operating_profit_growth": ratios.get("operating_profit_growth"),
+                "eps_growth": ratios.get("eps_growth")
+            })
             
-            await self.db_session.execute(insert_query, ratio_data)
             await self.db_session.commit()
             
-            logger.info(f"재무비율 저장 완료: {corp_code}, {bsns_year}")
+            return ratios
             
         except Exception as e:
-            logger.error(f"재무비율 저장 중 오류 발생: {str(e)}")
+            logger.error(f"재무비율 계산 및 저장 실패: {str(e)}")
             await self.db_session.rollback()
             raise 

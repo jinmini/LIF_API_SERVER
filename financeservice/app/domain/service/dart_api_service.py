@@ -8,7 +8,7 @@ from typing import List, Optional
 from dotenv import load_dotenv
 from datetime import datetime
 
-from app.domain.model.schemas import CompanyInfo, RawFinancialStatement, DartApiResponse
+from app.domain.model.schema.schema import CompanyInfo, RawFinancialStatement, DartApiResponse
 
 # 로깅 설정
 logger = logging.getLogger(__name__)
