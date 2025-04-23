@@ -4,11 +4,15 @@ import aiohttp
 import zipfile
 import xml.etree.ElementTree as ET
 from io import BytesIO
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from dotenv import load_dotenv
 from datetime import datetime
 
-from app.domain.model.schema.schema import CompanyInfo, RawFinancialStatement, DartApiResponse
+from app.domain.model.schema.schema import DartApiResponse
+from app.domain.model.schema.company_schema import CompanySchema
+from app.domain.model.schema.report_schema import ReportSchema
+from app.domain.model.schema.financial_schema import FinancialSchema
+from app.domain.model.schema.statement_schema import StatementSchema
 
 # 로깅 설정
 logger = logging.getLogger(__name__)
@@ -29,7 +33,7 @@ class DartApiService:
             raise ValueError("DART API 키가 필요합니다.")
         logger.info("DartApiService가 초기화되었습니다.")
 
-    async def fetch_company_info(self, company_name: str) -> CompanyInfo:
+    async def fetch_company_info(self, company_name: str) -> CompanySchema:
         """DART API에서 회사 정보를 조회합니다."""
         logger.info(f"회사 정보 조회 시작: {company_name}")
         url = "https://opendart.fss.or.kr/api/corpCode.xml"
@@ -50,17 +54,43 @@ class DartApiService:
                         for company in root.findall('.//list'):
                             if company.findtext('corp_name') == company_name:
                                 logger.info(f"회사 정보를 찾았습니다: {company_name}")
-                                return CompanyInfo(
+                                now = datetime.now().isoformat()
+                                return CompanySchema(
                                     corp_code=company.findtext('corp_code'),
                                     corp_name=company_name,
                                     stock_code=company.findtext('stock_code') or "",
-                                    modify_date=company.findtext('modify_date')
+                                    created_at=now,
+                                    updated_at=now
                                 )
                         
                         logger.error(f"회사명 '{company_name}'을 찾을 수 없습니다.")
                         raise ValueError(f"회사명 '{company_name}'을 찾을 수 없습니다.")
 
-    async def fetch_financial_statements(self, corp_code: str, year: Optional[int] = None) -> List[RawFinancialStatement]:
+    def _prepare_financial_data(self, raw_data: Dict[str, Any]) -> FinancialSchema:
+        """API 응답 데이터에서 재무제표 스키마 객체를 생성합니다."""
+        try:
+            return FinancialSchema(
+                corp_code=raw_data.get("corp_code", ""),
+                bsns_year=raw_data.get("bsns_year", ""),
+                sj_div=raw_data.get("sj_div", ""),
+                account_nm=raw_data.get("account_nm", ""),
+                thstrm_nm=raw_data.get("thstrm_nm", ""),
+                thstrm_amount=float(raw_data.get("thstrm_amount", 0)) if raw_data.get("thstrm_amount") else None,
+                frmtrm_nm=raw_data.get("frmtrm_nm", ""),
+                frmtrm_amount=float(raw_data.get("frmtrm_amount", 0)) if raw_data.get("frmtrm_amount") else None,
+                bfefrmtrm_nm=raw_data.get("bfefrmtrm_nm", ""),
+                bfefrmtrm_amount=float(raw_data.get("bfefrmtrm_amount", 0)) if raw_data.get("bfefrmtrm_amount") else None,
+                ord=int(raw_data.get("ord", 0)),
+                currency=raw_data.get("currency", ""),
+                rcept_no=raw_data.get("rcept_no", ""),
+                created_at=datetime.now(),
+                updated_at=datetime.now()
+            )
+        except Exception as e:
+            logger.error(f"재무제표 데이터 변환 실패: {str(e)}")
+            raise
+
+    async def fetch_financial_statements(self, corp_code: str, year: Optional[int] = None) -> List[Dict[str, Any]]:
         """DART API에서 재무제표 데이터를 조회합니다.
         
         Args:
@@ -72,7 +102,7 @@ class DartApiService:
         current_year = datetime.now().year
         
         # 연도 설정
-        if year is None:
+        if year is None or not isinstance(year, int):
             target_year = current_year - 1
             logger.info(f"연도가 지정되지 않아 {target_year}년도 데이터를 조회합니다.")
         else:
@@ -117,7 +147,7 @@ class DartApiService:
                             item["thstrm_nm"] = f"{int(item['bsns_year'])}년"
                             item["frmtrm_nm"] = f"{int(item['bsns_year'])-1}년"
                             item["bfefrmtrm_nm"] = f"{int(item['bsns_year'])-2}년"
-                            statements.append(RawFinancialStatement(**item))
+                            statements.append(item)
                 
                 # 현금흐름표 조회
                 cf_url = "https://opendart.fss.or.kr/api/fnlttCashFlow.json"
@@ -139,7 +169,7 @@ class DartApiService:
                         item["thstrm_nm"] = f"{int(item['bsns_year'])}년"
                         item["frmtrm_nm"] = f"{int(item['bsns_year'])-1}년"
                         item["bfefrmtrm_nm"] = f"{int(item['bsns_year'])-2}년"
-                        statements.append(RawFinancialStatement(**item))
+                        statements.append(item)
                 
                 # 데이터를 찾았다면 더 이상 시도하지 않음
                 if statements:
